@@ -2,9 +2,9 @@
 
 ## Purpose
 
-This pipeline exists to evaluate **paper trading strategy performance** on Alpaca against real market conditions sourced from Binance.
+This pipeline exists to evaluate **paper trading strategy performance** on Alpaca against real market conditions sourced from Alpaca's own market data stream.
 
-Alpaca is the trading playground — you control it. Binance is the benchmark — you measure against it. Everything downstream (Kafka, ClickHouse, the API) exists to answer one core question:
+Alpaca is both the trading playground and the market data source — keeping the benchmark consistent with how fills are actually priced. Everything downstream (Kafka, ClickHouse, the API) exists to answer one core question:
 
 > **Did my trades on Alpaca execute well relative to what the market was actually doing?**
 
@@ -15,7 +15,7 @@ Alpaca is the trading playground — you control it. Binance is the benchmark �
 | Source | Data | Role |
 |--------|------|------|
 | Alpaca paper trading | `orders`, `symbols` | **Your plays** — the thing you control |
-| Binance WebSocket | `trades` | **The market** — the benchmark you measure against |
+| Alpaca market data stream | `trades` | **The market** — the benchmark you measure against |
 | This project's API | `price_alerts` | **Your rules** — triggers and watchlist conditions |
 
 ### Alpaca — the playground
@@ -31,11 +31,11 @@ This lifecycle is the core transactional data. Every status transition is a busi
 
 `symbols` tracks the catalog of tradeable assets — whether they are active, delisted, or suspended. It provides the reference dimension that orders and trades join against.
 
-### Binance — the market benchmark
+### Alpaca market data stream — the market benchmark
 
-Binance WebSocket streams every real market trade happening on the exchange in real time. These are not your trades — they are the aggregate activity of all participants in the market.
+Alpaca's market data WebSocket streams real-time crypto trade ticks, quotes, and bars per symbol. These are not your trades — they are the aggregate market activity that Alpaca sources and uses to price paper trading fills.
 
-This data answers: *what was the true market price and volume at any given millisecond?* Without this, Alpaca fill prices have no context.
+This data answers: *what was the market price and volume at the moment of my fill?* Using Alpaca's own data feed as the benchmark ensures slippage calculations are apples-to-apples — fills are priced against this same feed, so any deviation is true slippage, not inter-exchange noise.
 
 ### Price alerts — your intent layer
 
@@ -107,10 +107,10 @@ PostgreSQL is the source of truth for current state. Debezium captures every INS
 
 ### Direct streaming ingestion (WebSocket → Kafka)
 
-Used for data that is **INSERT only and high volume** — market trades from Binance.
+Used for data that is **INSERT only and high volume** — market trades from Alpaca's market data stream.
 
 ```
-Binance WebSocket  →  Streaming Ingestion Service  →  Kafka (directly)
+Alpaca Market Data WebSocket  →  Streaming Ingestion Service  →  Kafka (directly)
 ```
 
 PostgreSQL is not involved here. Trades are immutable facts — they are never updated or deleted — so CDC adds no value and only increases latency and storage overhead.
@@ -133,7 +133,7 @@ The two paths have independent failure domains. A Debezium restart does not inte
 
 | Topic | Source | Partitions | Ingestion method |
 |-------|--------|-----------|-----------------|
-| `stock.public.trades` | Binance | 6 | Direct streaming |
+| `stock.public.trades` | Alpaca market data | 6 | Direct streaming |
 | `stock.public.orders` | Alpaca | 3 | CDC |
 | `stock.public.symbols` | Alpaca | 1 | CDC |
 | `stock.public.price_alerts` | API | 1 | CDC |
@@ -156,7 +156,7 @@ The `ohlcv_1m` materialized view pre-aggregates trades into 1-minute OHLCV bars 
 ┌──────────────────────────────────────────────────────────┐
 │                      SOURCE LAYER                        │
 │                                                          │
-│  Binance WebSocket ──► Streaming Ingestion ─────────────┼──► Kafka (trades)
+│  Alpaca Market Data WebSocket ──► Streaming Ingestion ──┼──► Kafka (trades)
 │                                                          │
 │  Alpaca Orders/Symbols ──► CDC Ingestion ──► PostgreSQL ─┼──► Debezium ──► Kafka (orders, symbols)
 │                                                          │
