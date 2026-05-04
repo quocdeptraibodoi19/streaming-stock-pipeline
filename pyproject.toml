@@ -1,0 +1,13 @@
+[project]
+name = "streaming-stock-pipeline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "alpaca-py>=0.43.3",
+    "arrow>=1.4.0",
+    "finnhub-python>=2.4.27",
+    "python-dotenv>=1.2.2",
+    "websockets>=16.0",
+]
